@@ -1,1 +1,1 @@
-worker: python startup.py
+worker: python scheduler.py --schedule

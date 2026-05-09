@@ -1,0 +1,14 @@
+yfinance
+pandas
+numpy
+ta
+xgboost
+scikit-learn
+joblib
+python-telegram-bot==20.8
+apscheduler
+requests
+beautifulsoup4
+python-dotenv
+matplotlib
+seaborn

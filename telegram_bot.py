@@ -10,68 +10,80 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 logger = logging.getLogger(__name__)
 
+SESSION_EMOJI = {
+    "Morning": "Morning",
+    "Midday":  "Midday",
+    "Closing": "Closing",
+    "Test":    "Test",
+    "":        "Signal",
+}
+
 
 def _format_signal_message(signal: dict) -> str:
-    """Format a single signal into a clean Telegram message."""
-    action  = signal["action"]
-    ticker  = signal["ticker"].replace(".NS", "")
-    conf    = signal["confidence_pct"]
-    close   = signal["close"]
-    target  = signal["target"]
-    sl      = signal["stop_loss"]
-    rr      = signal["risk_reward"]
-    pe      = signal.get("pe_ratio", "N/A")
-    sent    = signal.get("news_sentiment", 0.5)
-    sig_date= signal.get("date", str(date.today()))
+    action   = signal["action"]
+    ticker   = signal["ticker"].replace(".NS", "")
+    conf     = signal["confidence_pct"]
+    close    = signal["close"]
+    target   = signal["target"]
+    sl       = signal["stop_loss"]
+    rr       = signal["risk_reward"]
+    pe       = signal.get("pe_ratio", "N/A")
+    sent     = signal.get("news_sentiment", 0.5)
+    atr      = signal.get("atr", "N/A")
+    sh       = signal.get("swing_high", "N/A")
+    slo      = signal.get("swing_low", "N/A")
+    sig_date = signal.get("date", str(date.today()))
 
-    emoji   = "🟢" if action == "BUY" else "🔴"
-    sent_label = "📰 Positive" if sent > 0.55 else ("📰 Negative" if sent < 0.45 else "📰 Neutral")
+    sent_label = "Positive" if sent > 0.55 else ("Negative" if sent < 0.45 else "Neutral")
+    sent_icon  = "+" if sent > 0.55 else ("-" if sent < 0.45 else "~")
+    action_tag = "[BUY]" if action == "BUY" else "[SELL]"
 
     msg = (
-        f"{emoji} *{action} Signal — {ticker}*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📅 Date: `{sig_date}`\n"
-        f"💰 CMP: `₹{close}`\n"
-        f"🎯 Target: `₹{target}`\n"
-        f"🛡 Stop Loss: `₹{sl}`\n"
-        f"⚖️ Risk:Reward: `1:{rr}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 Model Confidence: `{conf}%`\n"
-        f"📊 PE Ratio: `{pe}`\n"
-        f"{sent_label} news sentiment\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ _This is not financial advice. Trade at your own risk._"
+        f"{action_tag} *{ticker}*\n"
+        f"------------------------\n"
+        f"Date: `{sig_date}`\n"
+        f"CMP: `Rs {close}`\n"
+        f"Target: `Rs {target}`\n"
+        f"Stop Loss: `Rs {sl}`\n"
+        f"Risk:Reward: `1 : {rr}`\n"
+        f"------------------------\n"
+        f"Confidence: `{conf}%`\n"
+        f"ATR: `{atr}`\n"
+        f"20d High: `{sh}` | Low: `{slo}`\n"
+        f"PE Ratio: `{pe}`\n"
+        f"News: `{sent_icon} {sent_label}`\n"
+        f"------------------------\n"
+        f"_Not financial advice. Trade at your own risk._"
     )
     return msg
 
 
-def _format_summary_message(signals: list) -> str:
-    """Format a summary header before sending individual signals."""
-    today       = date.today().strftime("%d %b %Y")
-    buy_count   = sum(1 for s in signals if s["action"] == "BUY")
-    sell_count  = sum(1 for s in signals if s["action"] == "SELL")
-    market_state= "🟢 Bullish" if signals[0].get("market_bullish") else "🔴 Bearish"
+def _format_summary_message(signals: list, session: str = "") -> str:
+    today      = date.today().strftime("%d %b %Y")
+    buy_count  = sum(1 for s in signals if s["action"] == "BUY")
+    sell_count = sum(1 for s in signals if s["action"] == "SELL")
+    mkt_state  = "Bullish" if signals and signals[0].get("market_bullish") else "Bearish"
+    sess_label = SESSION_EMOJI.get(session, session) if session else "Daily"
 
     return (
-        f"📊 *Nifty 50 Daily Signals — {today}*\n"
-        f"Market Regime: {market_state}\n"
-        f"Signals: `{buy_count}` BUY  |  `{sell_count}` SELL\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Top picks below 👇"
+        f"*Nifty 50 Signals - {sess_label} Session*\n"
+        f"Date: {today}\n"
+        f"Market: {mkt_state}\n"
+        f"BUY: {buy_count}  |  SELL: {sell_count}\n"
+        f"------------------------\n"
+        f"Top picks below"
     )
 
 
-async def _send_messages(signals: list):
-    """Async: send summary + one message per signal."""
+async def _send_messages(signals: list, session: str = ""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set in .env!")
         return
 
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-    # Send summary header
     if signals:
-        summary = _format_summary_message(signals)
+        summary = _format_summary_message(signals, session)
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
             text=summary,
@@ -79,7 +91,6 @@ async def _send_messages(signals: list):
         )
         logger.info("Sent summary message")
 
-    # Send each signal
     for signal in signals:
         msg = _format_signal_message(signal)
         await bot.send_message(
@@ -87,41 +98,46 @@ async def _send_messages(signals: list):
             text=msg,
             parse_mode=ParseMode.MARKDOWN,
         )
-        logger.info(f"Sent signal: {signal['action']} {signal['ticker']}")
-        await asyncio.sleep(0.5)  # Avoid hitting Telegram rate limits
+        logger.info(f"Sent: {signal['action']} {signal['ticker']}")
+        await asyncio.sleep(0.5)
 
     if not signals:
+        sess_label = f"{session} " if session else ""
         await bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
-            text=f"📊 *No high-confidence signals today* ({date.today()})\nModel found no setups above the threshold.",
+            text=f"*No high-confidence signals - {sess_label}{date.today()}*\nNo setups above threshold.",
             parse_mode=ParseMode.MARKDOWN,
         )
-        logger.info("No signals to send — sent 'no signals' message")
+        logger.info("No signals - sent empty message")
 
 
-def send_signals(signals: list):
-    """Sync wrapper — call this from the scheduler."""
-    asyncio.run(_send_messages(signals))
+def send_signals(signals: list, session: str = ""):
+    """Sync wrapper - call this from the scheduler."""
+    asyncio.run(_send_messages(signals, session))
 
 
 async def _test_connection():
-    """Quick test: send a test message to verify bot is working."""
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     await bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,
-        text="✅ *Nifty 50 Bot connected!*\nDaily signals will arrive after market close.",
+        text=(
+            "*Nifty 50 Bot connected!*\n"
+            "Schedule:\n"
+            "Morning - 9:30 AM IST\n"
+            "Closing - 3:45 PM IST\n"
+            "(Mon-Fri only)"
+        ),
         parse_mode=ParseMode.MARKDOWN,
     )
-    logger.info("Test message sent successfully")
+    logger.info("Test message sent")
 
 
 def test_bot():
-    """Send a test message to verify setup."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("ERROR: Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env first!")
         return
     asyncio.run(_test_connection())
-    print("✅ Test message sent! Check your Telegram.")
+    print("Test message sent! Check your Telegram.")
 
 
 if __name__ == "__main__":
@@ -130,7 +146,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", action="store_true", help="Send a test message")
     args = parser.parse_args()
-
     if args.test:
         test_bot()
     else:

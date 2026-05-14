@@ -7,7 +7,6 @@ and sends **BUY / SELL** alerts directly to your Telegram channel.
 and fundamental data. Signals fire only when model confidence ≥ 65%.
 
 ---
-
 ## Architecture
 
 ```
